@@ -1,0 +1,253 @@
+from nicegui import ui
+import serial
+import serial.tools.list_ports
+import threading
+import time
+from collections import deque
+
+class SupervisorioEduardo:
+    def __init__(self):
+        self.ser = None
+        self.conectado = False
+        self.running = False
+        
+        # Dados do Gráfico de Linha (A0-A4)
+        self.dados_analog = {'0': 0}
+        self.historico = {'0': deque([0]*150, maxlen=150)}
+
+        # Dados do Gráfico FFT (O ESP32 envia 15 Bins: do Bin 1 ao Bin 15)
+        # Índice 0 = 60Hz, Índice 2 = 180Hz (3ª), Índice 4 = 300Hz (5ª), Índice 6 = 420Hz (7ª)
+        self.fft_labels = [f"{i*60}Hz" for i in range(1, 16)]
+        self.fft_data = [0.0] * 15
+        
+        # Variáveis de Memória das Grandezas Principais
+        self.vrms_val = "0.00"
+        self.freq_val = "0.00"
+        self.fase_val = "0.0"
+        self.thd_val  = "0.00"
+        self.ruido_val = "0.0000"
+        
+        # Variáveis de Extração Harmônica (Exigência do Professor)
+        self.h3_val = "0.0"
+        self.h5_val = "0.0"
+        self.h7_val = "0.0"
+        
+        # Status Unificado do Sistema
+        self.status_msg   = "SISTEMA PRONTO - AGUARDANDO DADOS"
+        self.status_color = "text-gray-500"
+
+    def listar_portas(self):
+        return [p.device for p in serial.tools.list_ports.comports()]
+
+    def conectar(self, porta, baud):
+        try:
+            self.ser = serial.serial_for_url(porta, baudrate=baud, timeout=0.1)
+            time.sleep(0.1)
+            self.ser.reset_input_buffer()
+            self.running = True
+            self.conectado = True
+            threading.Thread(target=self.thread_leitura, daemon=True).start()
+            ui.notify(f'Conectado: {porta} @ {baud}', type='positive')
+        except Exception as e:
+            ui.notify(f'Erro: {e}', type='negative')
+
+    def desconectar(self):
+        self.running = False
+        self.conectado = False
+        if self.ser: self.ser.close()
+        ui.notify('Conexão Serial Encerrada', type='warning')
+
+    def enviar(self, tipo, pino, valor):
+        if self.ser and self.ser.is_open:
+            self.ser.write(f"{tipo}:{pino}:{valor}\n".encode())
+
+    def thread_leitura(self):
+        while self.running:
+            try:
+                if self.ser and self.ser.in_waiting:
+                    msg = self.ser.readline().decode().strip()
+                    
+                    # 1. Dados Analógicos (Osciloscópio)
+                    if msg.startswith("A:"):
+                        partes = msg.split(":")
+                        if len(partes) >= 3:
+                            ch, val = partes[1], int(partes[2])
+                            self.dados_analog[ch] = val
+                            self.historico[ch].append(val)
+                            
+                    # 2. Leitura de Grandezas Numéricas
+                    elif msg.startswith("Vrms:"):
+                        self.vrms_val = msg.split(":")[1].strip()
+                    elif msg.startswith("Freq:"):
+                        self.freq_val = msg.split("Freq:")[1].strip()
+                    elif msg.startswith("Fase:"):
+                        self.fase_val = msg.split("Fase:")[1].strip()
+                    elif msg.startswith("THD:"):
+                        self.thd_val = msg.split("THD:")[1].strip()
+                    elif msg.startswith("RuidoFFT:"):
+                        self.ruido_val = msg.split("RuidoFFT:")[1].strip()
+
+                    # 3. Captura do Espectro FFT e Extração das Harmônicas (3ª, 5ª e 7ª)
+                    elif msg.startswith("FFT:"):
+                        try:
+                            valores_str = msg.split("FFT:")[1].strip().split(",")
+                            self.fft_data = [float(v) for v in valores_str]
+                            
+                            # Extrai os valores das harmônicas exigidas se a lista tiver tamanho suficiente
+                            if len(self.fft_data) >= 7:
+                                self.h3_val = f"{self.fft_data[2]:.1f}" # Índice 2 = 3 * 60Hz = 180Hz
+                                self.h5_val = f"{self.fft_data[4]:.1f}" # Índice 4 = 5 * 60Hz = 300Hz
+                                self.h7_val = f"{self.fft_data[6]:.1f}" # Índice 6 = 7 * 60Hz = 420Hz
+                        except Exception:
+                            pass
+                        
+                    # 4. Leitura de Alertas (Status Unificado)
+                    elif "ALERTA" in msg or "DETECTADO" in msg:
+                        self.status_msg = msg.replace("ALERTA: ", "").strip()
+                        self.status_color = "text-red-600"
+                    elif "REDE NORMAL" in msg:
+                        self.status_msg = "REDE NORMAL"
+                        self.status_color = "text-green-600"
+
+            except Exception:
+                pass
+            time.sleep(0.00001)
+
+sup = SupervisorioEduardo()
+
+# --- INTERFACE DE USUÁRIO (UI) ---
+ui.query('.q-page').classes('bg-slate-200')
+
+# 1. CABEÇALHO
+with ui.header().classes('bg-zinc-900 items-center justify-between shadow-md'):
+    ui.label('ANALISADOR DE QUALIDADE DE ENERGIA - UEMA').classes('text-h6 text-bold p-2')
+    
+    with ui.row().classes('items-center bg-white/10 p-2 rounded-lg gap-4'):
+        sel_baud = ui.select(options=[9600, 115200], value=115200, label='Velocidade').props('dark dense standout')
+        opcoes_porta = sup.listar_portas() + ['socket://127.0.0.1:31415']
+        sel_porta = ui.select(options=opcoes_porta, value='socket://127.0.0.1:31415', label='Porta').props('dark dense standout')
+        
+        ui.button('CONECTAR', on_click=lambda: sup.conectar(sel_porta.value, sel_baud.value))\
+            .bind_visibility_from(sup, 'conectado', backward=lambda x: not x).props('color=green-7')
+        ui.button('DESCONECTAR', on_click=sup.desconectar)\
+            .bind_visibility_from(sup, 'conectado').props('color=red-7')
+
+# Container Principal
+with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
+    
+    # 2. PAINEL DE DIAGNÓSTICO (Status Unificado e Harmônicas Críticas)
+    with ui.row().classes('w-full gap-4'):
+        # Status Geral
+        with ui.card().classes('flex-grow p-4 shadow-sm border-l-4 border-blue-600 items-center justify-center'):
+            ui.label('DIAGNÓSTICO DA REDE').classes('text-xs font-bold text-gray-500 uppercase')
+            lbl_status = ui.label('AGUARDANDO').classes('text-2xl font-bold mt-2 text-center')
+
+        # Monitoramento das Harmônicas Específicas do Professor
+        with ui.card().classes('w-1/2 p-4 shadow-sm'):
+            ui.label('MONITORAMENTO DE HARMÔNICAS CRÍTICAS').classes('text-xs font-bold text-gray-500 uppercase mb-2')
+            with ui.row().classes('w-full justify-around'):
+                with ui.column().classes('items-center'):
+                    ui.label('3ª (180Hz)').classes('text-sm font-bold text-purple-700')
+                    lbl_h3 = ui.label('0.0').classes('text-xl font-mono')
+                with ui.column().classes('items-center'):
+                    ui.label('5ª (300Hz)').classes('text-sm font-bold text-purple-700')
+                    lbl_h5 = ui.label('0.0').classes('text-xl font-mono')
+                with ui.column().classes('items-center'):
+                    ui.label('7ª (420Hz)').classes('text-sm font-bold text-purple-700')
+                    lbl_h7 = ui.label('0.0').classes('text-xl font-mono')
+
+    # 3. MÉTRICAS PRINCIPAIS
+    with ui.row().classes('w-full grid grid-cols-5 gap-4'):
+        def criar_card_metrica(titulo, cor_texto):
+            with ui.card().classes('items-center p-4 shadow-sm'):
+                ui.label(titulo).classes('text-xs font-bold text-gray-500 uppercase tracking-wider text-center')
+                lbl_valor = ui.label('--').classes(f'text-3xl font-mono {cor_texto} mt-2')
+            return lbl_valor
+
+        lbl_rms   = criar_card_metrica('Tensão RMS', 'text-blue-700')
+        lbl_freq  = criar_card_metrica('Frequência (Hz)', 'text-indigo-700')
+        lbl_fase  = criar_card_metrica('Salto Fase (°)', 'text-pink-700')
+        lbl_thd   = criar_card_metrica('THD Total (%)', 'text-red-700')
+        lbl_ruido = criar_card_metrica('Ruído EMI (%)', 'text-orange-700')
+
+    # 4. GRÁFICOS E SIMULADOR
+    with ui.row().classes('w-full gap-6 flex-wrap'):
+        
+        # Coluna de Gráficos Analíticos
+        with ui.column().classes('flex-grow w-2/3 gap-4'):
+            
+            # Osciloscópio
+            with ui.card().classes('w-full p-4 shadow-sm'):
+                ui.label('DOMÍNIO DO TEMPO (Osciloscópio)').classes('text-bold text-blue-9 text-caption')
+                grafico_onda = ui.echart({
+                    'animation': False,
+                    'xAxis': {'type': 'category', 'show': False},
+                    'yAxis': {'type': 'value', 'min': -450, 'max': 450, 'name': 'Valor ADC'},
+                    'series': [{'data': list(sup.historico['0']), 'type': 'line', 'smooth': True, 'symbol': 'none', 'areaStyle': {}, 'color': '#1976d2'}],
+                    'grid': {'top': 10, 'bottom': 10, 'left': 45, 'right': 10}
+                }).classes('h-40 w-full')
+
+            # Espectro FFT
+            with ui.card().classes('w-full p-4 shadow-sm'):
+                ui.label('ESPECTRO DE FREQUÊNCIAS (Transformada Rápida de Fourier)').classes('text-bold text-purple-9 text-caption')
+                grafico_fft = ui.echart({
+                    'animation': False, 
+                    'xAxis': {'type': 'category', 'data': sup.fft_labels, 'axisLabel': {'fontSize': 10, 'rotate': 0}},
+                    'yAxis': {'type': 'value', 'name': 'Mag'},
+                    'series': [{'type': 'bar', 'data': sup.fft_data, 'color': '#9c27b0', 'barWidth': '50%'}],
+                    'grid': {'top': 30, 'bottom': 20, 'left': 45, 'right': 10}
+                }).classes('h-40 w-full')
+
+        # Coluna do Simulador de Anomalias (Apresentação)
+        with ui.column().classes('w-1/4 min-w-[250px] gap-4'):
+            with ui.card().classes('w-full p-4 shadow-sm bg-slate-50'):
+                ui.label('PAINEL DE SIMULAÇÃO').classes('text-bold text-slate-800 text-subtitle2 mb-4 text-center')
+                
+                with ui.column().classes('w-full gap-3'):
+                    ui.label('Formas de Onda (Base):').classes('text-xs text-gray-500 font-bold')
+                    ui.button('Sinal Limpo', on_click=lambda: sup.enviar('D', 2, 1)).props('outline color=blue size=sm w-full')
+                    ui.button('THD Alto', on_click=lambda: sup.enviar('D', 4, 1)).props('outline color=red size=sm w-full')
+                    ui.button('Ruído EMI Alto', on_click=lambda: sup.enviar('D', 12, 1)).props('outline color=orange size=sm w-full')
+                    
+                    ui.separator()
+                    
+                    ui.label('Injeção de Distúrbios:').classes('text-xs text-gray-500 font-bold')
+                    ui.button('Gerar Swell (Sobretensão)', on_click=lambda: sup.enviar('D', 13, 1)).props('outline color=indigo size=sm w-full')
+                    ui.button('Gerar Sag (Queda)', on_click=lambda: sup.enviar('D', 14, 1)).props('outline color=indigo size=sm w-full')
+                    ui.button('Gerar Spike (Transiente)', on_click=lambda: sup.enviar('D', 26, 1)).props('outline color=indigo size=sm w-full')
+                    
+                    ui.separator()
+                    
+                    # Botão Mestre de Reset
+                    ui.button('RESETAR SINAL', on_click=lambda: sup.enviar('D', 27, 1)).props('color=red icon=refresh w-full')
+
+# --- LÓGICA DE ATUALIZAÇÃO DA INTERFACE ---
+CORES_STATUS = 'text-gray-500 text-red-600 text-green-600'
+
+def atualizar_graficos():
+    if sup.conectado:
+        # Atualiza Gráficos
+        grafico_onda.options['series'][0]['data'] = list(sup.historico['0'])
+        grafico_onda.update()
+
+        grafico_fft.options['series'][0]['data'] = sup.fft_data
+        grafico_fft.update()
+
+        # Atualiza Textos das Métricas
+        lbl_rms.set_text(sup.vrms_val)
+        lbl_freq.set_text(sup.freq_val)
+        lbl_fase.set_text(sup.fase_val)
+        lbl_thd.set_text(sup.thd_val)
+        lbl_ruido.set_text(sup.ruido_val)
+        
+        # Atualiza Harmônicas Específicas
+        lbl_h3.set_text(sup.h3_val)
+        lbl_h5.set_text(sup.h5_val)
+        lbl_h7.set_text(sup.h7_val)
+        
+        # Atualiza Status Unificado
+        lbl_status.set_text(sup.status_msg)
+        lbl_status.classes(remove=CORES_STATUS, add=sup.status_color)
+
+ui.timer(0.03, atualizar_graficos)
+ui.run(title='Power Quality - UEMA', port=8080)
