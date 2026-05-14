@@ -11,14 +11,14 @@ class SupervisorioEduardo:
         self.conectado = False
         self.running = False
         
-        # Dados do Gráfico de Linha (A0-A4)
+        # Dados do Gráfico de Linha
         self.dados_analog = {'0': 0}
         self.historico = {'0': deque([0]*150, maxlen=150)}
 
         # Dados do Gráfico FFT (O ESP32 envia 15 Bins: do Bin 1 ao Bin 15)
         # Índice 0 = 60Hz, Índice 2 = 180Hz (3ª), Índice 4 = 300Hz (5ª), Índice 6 = 420Hz (7ª)
         self.fft_labels = [f"{i*60}Hz" for i in range(1, 16)]
-        self.fft_data = [0.0] * 15
+        self.fft_data = [0.0] * 15 
         
         # Variáveis de Memória das Grandezas Principais
         self.vrms_val = "0.00"
@@ -27,7 +27,7 @@ class SupervisorioEduardo:
         self.thd_val  = "0.00"
         self.ruido_val = "0.0000"
         
-        # Variáveis de Extração Harmônica (Exigência do Professor)
+        # Variáveis de Extração Harmônica
         self.h3_val = "0.0"
         self.h5_val = "0.0"
         self.h7_val = "0.0"
@@ -35,6 +35,15 @@ class SupervisorioEduardo:
         # Status Unificado do Sistema
         self.status_msg   = "SISTEMA PRONTO - AGUARDANDO DADOS"
         self.status_color = "text-gray-500"
+        
+        # Variáveis exclusivas para a Árvore de Decisão
+        self.flag_swell = False
+        self.flag_sag = False
+        self.flag_spike = False
+        self.flag_freq = False
+        self.flag_fase = False
+        self.flag_thd = False
+        self.flag_ruido = False
 
     def listar_portas(self):
         return [p.device for p in serial.tools.list_ports.comports()]
@@ -93,7 +102,7 @@ class SupervisorioEduardo:
                             valores_str = msg.split("FFT:")[1].strip().split(",")
                             self.fft_data = [float(v) for v in valores_str]
                             
-                            # Extrai os valores das harmônicas exigidas se a lista tiver tamanho suficiente
+                            # Extrai os valores das harmônicas exigidas
                             if len(self.fft_data) >= 7:
                                 self.h3_val = f"{self.fft_data[2]:.1f}" # Índice 2 = 3 * 60Hz = 180Hz
                                 self.h5_val = f"{self.fft_data[4]:.1f}" # Índice 4 = 5 * 60Hz = 300Hz
@@ -101,13 +110,51 @@ class SupervisorioEduardo:
                         except Exception:
                             pass
                         
-                    # 4. Leitura de Alertas (Status Unificado)
-                    elif "ALERTA" in msg or "DETECTADO" in msg:
-                        self.status_msg = msg.replace("ALERTA: ", "").strip()
-                        self.status_color = "text-red-600"
+                    # Mapeamento Booleano para a Árvore de Decisão
+                    if "SWELL DETECTADO" in msg:
+                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_color = 'text-red-600'
+                        self.flag_swell = True
+                        self.flag_sag = False
+                        self.flag_spike = False
+                    elif "SAG DETECTADO" in msg:
+                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_color = 'text-orange-600'
+                        self.flag_sag = True
+                        self.flag_swell = False
+                        self.flag_spike = False
+                    elif "SPIKE DETECTADO" in msg:
+                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_color = 'text-pink-600'
+                        self.flag_spike = True
+                        self.flag_swell = False
+                        self.flag_sag = False
+                    elif "DESVIO DE FREQUENCIA" in msg:
+                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_color = 'text-indigo-600'
+                        self.flag_freq = True
+                    elif "SALTO DE FASE" in msg:
+                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_color = 'text-purple-600'
+                        self.flag_fase = True
+                    elif "DISTORCAO HARMONICA ELEVADA" in msg:
+                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_color = 'text-red-600'
+                        self.flag_thd = True
+                    elif "RUIDO DE ALTA FREQUENCIA" in msg:
+                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_color = 'text-orange-600'
+                        self.flag_ruido = True
                     elif "REDE NORMAL" in msg:
                         self.status_msg = "REDE NORMAL"
                         self.status_color = "text-green-600"
+                        # Limpa as flags se a rede normalizou
+                        self.flag_swell = False
+                        self.flag_sag = False
+                        self.flag_freq = False
+                        self.flag_fase = False
+                        self.flag_thd = False
+                        self.flag_ruido = False
 
             except Exception:
                 pass
@@ -135,11 +182,11 @@ with ui.header().classes('bg-zinc-900 items-center justify-between shadow-md'):
 # Container Principal
 with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
     
-    # 2. PAINEL DE DIAGNÓSTICO (Status Unificado e Harmônicas Críticas)
+    # 1. PAINEL DE DIAGNÓSTICO E HARMÔNICAS
     with ui.row().classes('w-full gap-4'):
         # Status Geral
         with ui.card().classes('flex-grow p-4 shadow-sm border-l-4 border-blue-600 items-center justify-center'):
-            ui.label('DIAGNÓSTICO DA REDE').classes('text-xs font-bold text-gray-500 uppercase')
+            ui.label('DIAGNÓSTICO GERAL DA REDE').classes('text-xs font-bold text-gray-500 uppercase')
             lbl_status = ui.label('AGUARDANDO').classes('text-2xl font-bold mt-2 text-center')
 
         # Monitoramento das Harmônicas Específicas do Professor
@@ -156,6 +203,11 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
                     ui.label('7ª (420Hz)').classes('text-sm font-bold text-purple-700')
                     lbl_h7 = ui.label('0.0').classes('text-xl font-mono')
 
+    # 2. SISTEMA ESPECIALISTA (ÁRVORE DE DECISÃO) - NOVO RECURSO EXIGIDO
+    with ui.card().classes('w-full p-4 shadow-sm border-l-4 border-yellow-500 bg-yellow-50'):
+        ui.label('SISTEMA ESPECIALISTA - SUGESTÕES DE INTERVENÇÃO TÉCNICA').classes('text-sm font-bold text-yellow-900 uppercase tracking-wider mb-2')
+        lbl_sugestoes = ui.html('<span class="text-gray-500">Aguardando análise de dados...</span>').classes('text-base')
+
     # 3. MÉTRICAS PRINCIPAIS
     with ui.row().classes('w-full grid grid-cols-5 gap-4'):
         def criar_card_metrica(titulo, cor_texto):
@@ -171,9 +223,7 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
         lbl_ruido = criar_card_metrica('Ruído EMI (%)', 'text-orange-700')
 
     # 4. GRÁFICOS E SIMULADOR
-    with ui.row().classes('w-full gap-6 flex-wrap'):
-        
-        # Coluna de Gráficos Analíticos
+    with ui.row().classes('w-full gap-4 flex-wrap'):
         with ui.column().classes('flex-grow w-2/3 gap-4'):
             
             # Osciloscópio
@@ -182,7 +232,7 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
                 grafico_onda = ui.echart({
                     'animation': False,
                     'xAxis': {'type': 'category', 'show': False},
-                    'yAxis': {'type': 'value', 'min': -450, 'max': 450, 'name': 'Valor ADC'},
+                    'yAxis': {'type': 'value', 'min': -450, 'max': 450},
                     'series': [{'data': list(sup.historico['0']), 'type': 'line', 'smooth': True, 'symbol': 'none', 'areaStyle': {}, 'color': '#1976d2'}],
                     'grid': {'top': 10, 'bottom': 10, 'left': 45, 'right': 10}
                 }).classes('h-40 w-full')
@@ -198,7 +248,7 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
                     'grid': {'top': 30, 'bottom': 20, 'left': 45, 'right': 10}
                 }).classes('h-40 w-full')
 
-        # Coluna do Simulador de Anomalias (Apresentação)
+        # Coluna do Simulador de Anomalias (Simulação de Formas de Onda e Injeção de Distúrbios)
         with ui.column().classes('w-1/4 min-w-[250px] gap-4'):
             with ui.card().classes('w-full p-4 shadow-sm bg-slate-50'):
                 ui.label('PAINEL DE SIMULAÇÃO').classes('text-bold text-slate-800 text-subtitle2 mb-4 text-center')
@@ -221,8 +271,40 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
                     # Botão Mestre de Reset
                     ui.button('RESETAR SINAL', on_click=lambda: sup.enviar('D', 27, 1)).props('color=red icon=refresh w-full')
 
-# --- LÓGICA DE ATUALIZAÇÃO DA INTERFACE ---
-CORES_STATUS = 'text-gray-500 text-red-600 text-green-600'
+# --- REGRAS DO SISTEMA ESPECIALISTA ---
+def motor_de_inferencia():
+    if not sup.conectado: return '<span class="text-gray-500">Aguardando comunicação com a placa...</span>'
+    
+    sugestoes = []
+    
+    # 1. Análise de Amplitude
+    if sup.flag_swell:
+        sugestoes.append("⚠️ <b>TENSÃO (SWELL):</b> Sobretensão detectada. Sugestão de Intervenção Tecnica")
+    if sup.flag_sag:
+        sugestoes.append("⚠️ <b>TENSÃO (SAG):</b> Queda de tensão. Sugestão de Intervenção Tecnica")
+    if sup.flag_spike:
+        sugestoes.append("⚠️ <b>TRANSIENTE (SPIKE):</b> Pico de tensão detectado. Sugestão de Intervenção Tecnica")
+        
+    # 2. Análise de Sincronismo
+    if sup.flag_freq:
+        sugestoes.append("⚠️ <b>FREQUÊNCIA:</b> Instabilidade detectada (Desvio de 60Hz). Sugestão de Intervenção Tecnica")
+    if sup.flag_fase:
+        sugestoes.append("❌ <b>CRÍTICO (FASE):</b> Salto de fase ou centelhamento detectado. Sugestão de Intervenção Tecnica")
+        
+    # 3. Análise de DSP (Harmônicas e Ruído)
+    if sup.flag_thd:
+        sugestoes.append(f"⚠️ <b>HARMÔNICAS:</b> Elevado ruído harmônico (THD = {sup.thd_val}%). Sugestão de Intervenção Tecnica")
+    if sup.flag_ruido:
+        sugestoes.append("⚠️ <b>INTERFERÊNCIA EMI/RFI:</b> Ruído de alta frequência acoplado. Sugestão de Intervenção Tecnica")
+
+    # Conclusão
+    if len(sugestoes) == 0:
+        return '<div class="text-green-700 font-bold">✅ REDE ESTÁVEL: Qualidade de energia dentro dos parâmetros normativos. Nenhuma intervenção de manutenção requerida no momento.</div>'
+    else:
+        return '<div class="text-red-700 flex flex-col gap-2">' + ''.join([f'<div>{s}</div>' for s in sugestoes]) + '</div>'
+
+
+CORES_STATUS = 'text-gray-500 text-red-600 text-orange-600 text-green-600'
 
 def atualizar_graficos():
     if sup.conectado:
@@ -233,7 +315,7 @@ def atualizar_graficos():
         grafico_fft.options['series'][0]['data'] = sup.fft_data
         grafico_fft.update()
 
-        # Atualiza Textos das Métricas
+        # Atualiza as Métricas
         lbl_rms.set_text(sup.vrms_val)
         lbl_freq.set_text(sup.freq_val)
         lbl_fase.set_text(sup.fase_val)
@@ -248,6 +330,9 @@ def atualizar_graficos():
         # Atualiza Status Unificado
         lbl_status.set_text(sup.status_msg)
         lbl_status.classes(remove=CORES_STATUS, add=sup.status_color)
+        
+        # Executa a Árvore de Decisão
+        lbl_sugestoes.set_content(motor_de_inferencia())
 
 ui.timer(0.03, atualizar_graficos)
-ui.run(title='Power Quality - UEMA', port=8080)
+ui.run(title='Analisador PQ - UEMA', port=8080)
