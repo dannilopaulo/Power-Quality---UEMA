@@ -1,4 +1,3 @@
-from matplotlib import pyplot as plt
 from nicegui import ui
 import serial
 import serial.tools.list_ports
@@ -8,8 +7,6 @@ import csv  # Para manipulação de arquivos locais
 from datetime import datetime # Para timestamps precisos
 from collections import deque
 import pandas as pd
-import base64
-from io import BytesIO
 from weasyprint import HTML
 
 class SupervisorioEduardo:
@@ -70,7 +67,7 @@ class SupervisorioEduardo:
                 self.caminho_arquivo = f"log_rede_{timestamp_inicio}.csv"
                 
                 # Abre o arquivo e escreve o cabeçalho
-                self.arquivo_log = open(self.caminho_arquivo, mode='w', newline='')
+                self.arquivo_log = open(self.caminho_arquivo, mode='w', newline='', encoding='utf-8-sig')
                 self.escritor_csv = csv.writer(self.arquivo_log)
                 self.escritor_csv.writerow(['Timestamp', 'Vrms(V)', 'Freq(Hz)', 'Fase(Deg)', 'THD(%)', 'Ruido(%)', 'H3', 'H5', 'H7', 'Status'])
                 
@@ -87,7 +84,7 @@ class SupervisorioEduardo:
 
     def gerar_relatorio_pdf(self, caminho_csv):
         # Carregar dados
-        df = pd.read_csv(caminho_csv)
+        df = pd.read_csv(caminho_csv, encoding='utf-8-sig')
         
         # Cálculos consolidados
         resumo = {
