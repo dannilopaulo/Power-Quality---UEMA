@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 from nicegui import ui
 import serial
 import serial.tools.list_ports
@@ -6,6 +7,10 @@ import time
 import csv  # Para manipulação de arquivos locais
 from datetime import datetime # Para timestamps precisos
 from collections import deque
+import pandas as pd
+import base64
+from io import BytesIO
+from weasyprint import HTML
 
 class SupervisorioEduardo:
     def __init__(self):
@@ -79,6 +84,69 @@ class SupervisorioEduardo:
                 self.arquivo_log.close()
                 self.arquivo_log = None
             ui.notify(f'Gravação encerrada. Arquivo salvo.', type='info', icon='file_download')
+
+    def gerar_relatorio_pdf(self, caminho_csv):
+        # Carregar dados
+        df = pd.read_csv(caminho_csv)
+        
+        # Cálculos consolidados
+        resumo = {
+            'inicio': df['Timestamp'].iloc[0],
+            'fim': df['Timestamp'].iloc[-1],
+            'vrms_media': df['Vrms(V)'].mean(),
+            'thd_max': df['THD(%)'].max(),
+            'total_falhas': df[df['Status'] != 'REDE NORMAL'].shape[0]
+        }
+
+        # Criar o HTML do Relatório
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                @page {{ size: A4; margin: 20mm; }}
+                body {{ font-family: times new roman; color: #333; }}
+                .header {{ text-align: center; border-bottom: 2px solid #1976d2; padding-bottom: 10px; }}
+                .stats-grid {{ display: table; width: 100%; margin: 20px 0; }}
+                .stat-box {{ display: table-cell; padding: 15px; border: 1px solid #ddd; text-align: center; }}
+                .stat-val {{ font-size: 18px; font-weight: bold; color: #1976d2; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 10px; }}
+                th {{ background-color: #f2f2f2; }}
+                .red {{ color: red; font-weight: bold; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>Relatório de Qualidade de Energia</h1>
+                <p>UEMA - Engenharia de Computação | Sistema Supervisório</p>
+            </div>
+            
+            <h3>Resumo do Período</h3>
+            <div class="stats-grid">
+                <div class="stat-box">Início<br><span class="stat-val">{resumo['inicio']}</span></div>
+                <div class="stat-box">Vrms Médio<br><span class="stat-val">{resumo['vrms_media']:.2f} V</span></div>
+                <div class="stat-box">THD Máximo<br><span class="stat-val">{resumo['thd_max']:.2f} %</span></div>
+            </div>
+
+            <h3>Log de Eventos e Anomalias</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th><th>Vrms</th><th>THD</th><th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {"".join([f"<tr><td>{r['Timestamp']}</td><td>{r['Vrms(V)']}</td><td>{r['THD(%)']}</td><td class='{'red' if r['Status'] != 'REDE NORMAL' else ''}'>{r['Status']}</td></tr>" for _, r in df.tail(20).iterrows()])}
+                </tbody>
+            </table>
+        </body>
+        </html>
+        """
+        
+        # Converter para PDF
+        output_pdf = caminho_csv.replace('.csv', '.pdf')
+        HTML(string=html_content).write_pdf(output_pdf)
+        return output_pdf
         
     def conectar(self, porta, baud):
         try:
@@ -140,7 +208,7 @@ class SupervisorioEduardo:
                                 self.h5_val = f"{self.fft_data[4]:.1f}" # Índice 4 = 5 * 60Hz = 300Hz
                                 self.h7_val = f"{self.fft_data[6]:.1f}" # Índice 6 = 7 * 60Hz = 420Hz
 
-                                # Grava os dados no CSV
+                                # Grava os dados no .csv
                                 # Registramos uma linha sempre que um novo ciclo de FFT é completado (fim do ciclo)
                                 if self.gravando and self.escritor_csv:
                                     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -222,6 +290,9 @@ with ui.header().classes('bg-zinc-900 items-center justify-between shadow-md'):
         ui.button(on_click=sup.alternar_gravacao)\
             .bind_text_from(sup, 'gravando', backward=lambda g: 'PARAR LOG' if g else 'GRAVAR LOG')\
             .bind_visibility_from(sup, 'gravando', backward=lambda g: 'color=red-9 icon=stop' if g else 'color=blue-8 icon=save')
+        ui.button('GERAR PDF', on_click=lambda: sup.gerar_relatorio_pdf(sup.caminho_arquivo))\
+            .bind_visibility_from(sup, 'gravando', backward=lambda g: not g and sup.caminho_arquivo != "")\
+            .props('color=grey-9 icon=picture_as_pdf')
 
 # Container Principal
 with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
