@@ -3,6 +3,8 @@ import serial
 import serial.tools.list_ports
 import threading
 import time
+import csv  # Para manipulação de arquivos locais
+from datetime import datetime # Para timestamps precisos
 from collections import deque
 
 class SupervisorioEduardo:
@@ -10,6 +12,12 @@ class SupervisorioEduardo:
         self.ser = None
         self.conectado = False
         self.running = False
+
+        # Atributos de Gravação (DATALOGGER)
+        self.gravando = False
+        self.arquivo_log = None
+        self.escritor_csv = None
+        self.caminho_arquivo = ""
         
         # Dados do Gráfico de Linha
         self.dados_analog = {'0': 0}
@@ -48,6 +56,30 @@ class SupervisorioEduardo:
     def listar_portas(self):
         return [p.device for p in serial.tools.list_ports.comports()]
 
+    # Lógica de Gravação de Dados (DATALOGGER)
+    def alternar_gravacao(self):
+        if not self.gravando:
+            try:
+                # Cria nome de arquivo único baseado na data e hora atual
+                timestamp_inicio = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                self.caminho_arquivo = f"log_rede_{timestamp_inicio}.csv"
+                
+                # Abre o arquivo e escreve o cabeçalho
+                self.arquivo_log = open(self.caminho_arquivo, mode='w', newline='')
+                self.escritor_csv = csv.writer(self.arquivo_log)
+                self.escritor_csv.writerow(['Timestamp', 'Vrms(V)', 'Freq(Hz)', 'Fase(Deg)', 'THD(%)', 'Ruido(%)', 'H3', 'H5', 'H7', 'Status'])
+                
+                self.gravando = True
+                ui.notify(f'Gravando dados em: {self.caminho_arquivo}', type='positive', icon='save')
+            except Exception as e:
+                ui.notify(f'Erro ao criar arquivo: {e}', type='negative')
+        else:
+            self.gravando = False
+            if self.arquivo_log:
+                self.arquivo_log.close()
+                self.arquivo_log = None
+            ui.notify(f'Gravação encerrada. Arquivo salvo.', type='info', icon='file_download')
+        
     def conectar(self, porta, baud):
         try:
             self.ser = serial.serial_for_url(porta, baudrate=baud, timeout=0.1)
@@ -107,8 +139,18 @@ class SupervisorioEduardo:
                                 self.h3_val = f"{self.fft_data[2]:.1f}" # Índice 2 = 3 * 60Hz = 180Hz
                                 self.h5_val = f"{self.fft_data[4]:.1f}" # Índice 4 = 5 * 60Hz = 300Hz
                                 self.h7_val = f"{self.fft_data[6]:.1f}" # Índice 6 = 7 * 60Hz = 420Hz
-                        except Exception:
-                            pass
+
+                                # Grava os dados no CSV
+                                # Registramos uma linha sempre que um novo ciclo de FFT é completado (fim do ciclo)
+                                if self.gravando and self.escritor_csv:
+                                    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                                    self.escritor_csv.writerow([
+                                        agora, self.vrms_val, self.freq_val, self.fase_val, 
+                                        self.thd_val, self.ruido_val, self.h3_val, self.h5_val, 
+                                        self.h7_val, self.status_msg
+                                    ])
+                                    self.arquivo_log.flush()
+                        except: pass
                         
                     # Mapeamento Booleano para a Árvore de Decisão
                     if "SWELL DETECTADO" in msg:
@@ -145,7 +187,7 @@ class SupervisorioEduardo:
                         self.status_msg = 'Alerta para Manutenção'
                         self.status_color = 'text-orange-600'
                         self.flag_ruido = True
-                    elif "REDE NORMAL" in msg:
+                    elif "REDE NORMAL" in msg and self.flag_freq == False and self.flag_fase == False and self.flag_thd == False and self.flag_ruido == False and self.flag_swell == False:
                         self.status_msg = "REDE NORMAL"
                         self.status_color = "text-green-600"
                         # Limpa as flags se a rede normalizou
@@ -158,7 +200,6 @@ class SupervisorioEduardo:
 
             except Exception:
                 pass
-            time.sleep(0.00001)
 
 sup = SupervisorioEduardo()
 
@@ -178,6 +219,9 @@ with ui.header().classes('bg-zinc-900 items-center justify-between shadow-md'):
             .bind_visibility_from(sup, 'conectado', backward=lambda x: not x).props('color=green-7')
         ui.button('DESCONECTAR', on_click=sup.desconectar)\
             .bind_visibility_from(sup, 'conectado').props('color=red-7')
+        ui.button(on_click=sup.alternar_gravacao)\
+            .bind_text_from(sup, 'gravando', backward=lambda g: 'PARAR LOG' if g else 'GRAVAR LOG')\
+            .bind_visibility_from(sup, 'gravando', backward=lambda g: 'color=red-9 icon=stop' if g else 'color=blue-8 icon=save')
 
 # Container Principal
 with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
@@ -269,7 +313,15 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
                     ui.separator()
                     
                     # Botão Mestre de Reset
-                    ui.button('RESETAR SINAL', on_click=lambda: sup.enviar('D', 27, 1)).props('color=red icon=refresh w-full')
+                    def reset_sinal():
+                        sup.enviar('D', 27, 1)
+                        sup.flag_swell = False
+                        sup.flag_sag = False
+                        sup.flag_freq = False
+                        sup.flag_fase = False
+                        sup.flag_thd = False
+                        sup.flag_ruido = False
+                    ui.button('RESETAR SINAL', on_click=reset_sinal).props('color=red icon=refresh w-full')
 
 # --- REGRAS DO SISTEMA ESPECIALISTA ---
 def motor_de_inferencia():
@@ -334,5 +386,5 @@ def atualizar_graficos():
         # Executa a Árvore de Decisão
         lbl_sugestoes.set_content(motor_de_inferencia())
 
-ui.timer(0.03, atualizar_graficos)
-ui.run(title='Analisador PQ - UEMA', port=8080)
+ui.timer(0.016, atualizar_graficos)
+ui.run(title='Power Quality - UEMA', port=8080)
