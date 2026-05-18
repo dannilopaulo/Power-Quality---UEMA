@@ -217,39 +217,39 @@ class SupervisorioEduardo:
                                     self.arquivo_log.flush()
                         except: pass
                         
-                    # Mapeamento Booleano para a Árvore de Decisão
+                      # Mapeamento Booleano para a Árvore de Decisão
                     if "SWELL DETECTADO" in msg:
-                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_msg = 'Swell (sobretensão) detectado. Verifique os reguladores de tensão. Sugestão: usar um estabilizador ou filtro de linha para proteger os equipamentos conectados.'
                         self.status_color = 'text-red-600'
                         self.flag_swell = True
                         self.flag_sag = False
                         self.flag_spike = False
                     elif "SAG DETECTADO" in msg:
-                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_msg = 'Sag (queda de tensão) detectado. Verifique sobrecarga na instalação elétrica. Sugestão: utilizar um no-break para garantir estabilidade.'
                         self.status_color = 'text-orange-600'
                         self.flag_sag = True
                         self.flag_swell = False
                         self.flag_spike = False
                     elif "SPIKE DETECTADO" in msg:
-                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_msg = 'Spike (pico de tensão) detectado. Risco de dabi a equipamentos sensíveis. Sugestão: Instalar DPS (Dispositivo de Proteção contra Surtos) para desviar picos e aterramento adequado.'
                         self.status_color = 'text-pink-600'
                         self.flag_spike = True
                         self.flag_swell = False
                         self.flag_sag = False
                     elif "DESVIO DE FREQUENCIA" in msg:
-                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_msg = 'Desvio de frequência detectado. Verifique a estabilidade do sistema elétrico. Sugestão: Monitorar a estabilidade da rede e considerar o uso de no-break para cargas críticas.'
                         self.status_color = 'text-indigo-600'
                         self.flag_freq = True
                     elif "SALTO DE FASE" in msg:
-                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_msg = 'Salto de fase detectado. Possível falha de sincronismo elétrico. Sugestão: Verificar balanceamento das fases.'
                         self.status_color = 'text-purple-600'
                         self.flag_fase = True
                     elif "DISTORCAO HARMONICA ELEVADA" in msg:
-                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_msg = 'THD (Distorção Harmônica) elevado. Presença excessiva de harmônicas ímpares. Sugestão: Utilizar filtros harmônicos.'
                         self.status_color = 'text-red-600'
                         self.flag_thd = True
                     elif "RUIDO DE ALTA FREQUENCIA" in msg:
-                        self.status_msg = 'Alerta para Manutenção'
+                        self.status_msg = 'Ruído de alta frequência detectado. Possível interferência eletromagnética. Sugestão: Utilizar filtros EMI/RFI (Interferência Eletromagnética/Interferência de Radiofrequência).'
                         self.status_color = 'text-orange-600'
                         self.flag_ruido = True
                     elif "REDE NORMAL" in msg and self.flag_freq == False and self.flag_fase == False and self.flag_thd == False and self.flag_ruido == False and self.flag_swell == False:
