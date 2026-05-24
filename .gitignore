@@ -1,0 +1,12 @@
+# Ignorar arquivos de dados gerados
+data/logs_csv/*.csv
+data/relatorios_pdf/*.pdf
+
+# Ignorar pastas de ambiente virtual Python (se você usar)
+.venv/
+env/
+__pycache__/
+
+# Ignorar lixos do sistema operacional
+.DS_Store
+Thumbs.db

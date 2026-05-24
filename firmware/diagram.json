@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "author": "Dannilo Paulo",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": -4.76, "attrs": {} },
+    {
+      "type": "wokwi-serial-port",
+      "id": "Serial",
+      "top": 0,
+      "left": 0,
+      "attrs": { "baud": "115200" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -109.2,
+      "left": 3.8,
+      "attrs": { "color": "yellow" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": -109.2,
+      "left": 23,
+      "attrs": { "color": "orange", "flip": "" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led3",
+      "top": -109.2,
+      "left": 42.2,
+      "attrs": { "color": "limegreen", "flip": "" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led4",
+      "top": -109.2,
+      "left": 61.4,
+      "attrs": { "color": "red", "flip": "" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led5",
+      "top": -109.2,
+      "left": 80.6,
+      "attrs": { "color": "red", "flip": "" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led6",
+      "top": -109.2,
+      "left": 99.8,
+      "attrs": { "color": "red", "flip": "" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led7",
+      "top": -109.2,
+      "left": 119,
+      "attrs": { "color": "red", "flip": "" }
+    },
+    {
+      "type": "wokwi-clock-generator",
+      "id": "clk1",
+      "top": 91.5,
+      "left": -148.9,
+      "rotate": 270,
+      "attrs": { "frequency": "60" }
+    },
+    { "type": "wokwi-slide-switch", "id": "sw1", "top": 23.6, "left": -112.1, "attrs": {} },
+    {
+      "type": "wokwi-clock-generator",
+      "id": "clk2",
+      "top": 91.5,
+      "left": -110.5,
+      "rotate": 270,
+      "attrs": { "frequency": "55" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "Serial:RX", "$serialMonitor:RX", [] ],
+    [ "esp:RX", "Serial:TX", "$serialMonitor:TX", [] ],
+    [ "esp:GND.2", "led1:C", "black", [ "v-48", "h-71.96" ] ],
+    [ "esp:2", "led1:A", "green", [ "h24.04", "v-201.6", "h-96" ] ],
+    [ "esp:GND.2", "led2:C", "black", [ "v-48", "h-62.36" ] ],
+    [ "esp:GND.2", "led3:C", "black", [ "v-48", "h-43.16" ] ],
+    [ "esp:GND.2", "led4:C", "black", [ "v-48", "h-23.96" ] ],
+    [ "esp:GND.2", "led5:C", "black", [ "v-48", "h-14.36" ] ],
+    [ "esp:GND.2", "led6:C", "black", [ "v-48", "h14.44" ] ],
+    [ "esp:GND.2", "led7:C", "black", [ "v-48", "h43.24" ] ],
+    [ "esp:4", "led2:A", "green", [ "h24.04", "v-182.4", "h-76.8" ] ],
+    [ "esp:12", "led3:A", "green", [ "v0", "h-23.81", "v-182.4", "h86.4" ] ],
+    [ "esp:13", "led4:A", "green", [ "h-23.81", "v-201.6", "h105.6" ] ],
+    [ "esp:14", "led5:A", "green", [ "h-23.81", "v-172.8", "h115.2" ] ],
+    [ "esp:26", "led6:A", "green", [ "h-23.81", "v-153.6", "h182.4" ] ],
+    [ "esp:27", "led7:A", "green", [ "h-23.81", "v-163.2", "h192" ] ],
+    [ "esp:34", "sw1:2", "green", [ "h0" ] ],
+    [ "clk1:CLK", "sw1:1", "green", [ "v-19.2", "h9.6" ] ],
+    [ "clk2:CLK", "sw1:3", "green", [ "v-19.2", "h-9.6" ] ]
+  ],
+  "serialMonitor": { "display": "always" },
+  "dependencies": {}
+}

@@ -5,8 +5,8 @@ import serial
 import serial.tools.list_ports
 import threading
 import time
-import csv  # Para manipulação de arquivos locais
-from datetime import datetime # Para timestamps precisos
+import csv
+from datetime import datetime
 from collections import deque
 import pandas as pd
 from weasyprint import HTML
@@ -121,6 +121,28 @@ class SupervisorioPowerQuality:
             'total_falhas': df[df['Status'] != 'REDE NORMAL'].shape[0]
         }
 
+        # --- MOTOR DE INFERÊNCIA PARA O RELATÓRIO PDF ---
+        sugestoes = []
+        
+        if df['Vrms(V)'].max() > 242:
+            sugestoes.append("<b>Tensão (Swell):</b> Sobretensão detectada. Verifique os reguladores de tensão. Sugestão: usar um estabilizador ou filtro de linha para proteger os equipamentos conectados.")
+        if df['Vrms(V)'].min() < 198:
+            sugestoes.append("<b>Tensão (Sag):</b> Queda de tensão. Verifique sobrecarga na instalação elétrica. Sugestão: utilizar um no-break para garantir estabilidade.")
+        if df['Freq(Hz)'].max() > 60.5 or df['Freq(Hz)'].min() < 59.5:
+            sugestoes.append("<b>Frequência:</b> Instabilidade detectada (Desvio de 60Hz). Verifique a estabilidade do sistema elétrico. Sugestão: Monitorar a estabilidade da rede e considerar o uso de no-break para cargas críticas.")
+        if df['Fase(Deg)'].abs().max() > 5.0:
+            sugestoes.append("<b>Crítico (Fase):</b> Salto de fase ou centelhamento detectado. Possível falha de sincronismo elétrico. Sugestão: Verificar balanceamento das fases.")
+        if df['THD(%)'].max() > 5.0:
+            sugestoes.append(f"<b>Harmônicas:</b> Elevado ruído harmônico (THD Máx = {df['THD(%)'].max():.2f}%). Presença excessiva de harmônicas ímpares. Sugestão: Utilizar filtros harmônicos.")
+        if df['Ruido(%)'].max() > 0.03:
+            sugestoes.append("<b>Interferência EMI/RFI:</b> Ruído de alta frequência acoplado. Possível interferência eletromagnética. Sugestão: Utilizar filtros EMI/RFI.")
+
+        if len(sugestoes) == 0:
+            bloco_sugestoes = '<div class="sugestao-box ok"><b>REDE ESTÁVEL:</b> Qualidade de energia dentro dos parâmetros normativos durante a gravação. Nenhuma intervenção técnica requerida.</div>'
+        else:
+            itens = "".join([f'<div class="sugestao-box alerta">{s}</div>' for s in sugestoes])
+            bloco_sugestoes = f'<div class="sugestoes-container">{itens}</div>'
+
         # Gerar Gráficos com Subplots
         fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 12), sharex=True)
         fig.suptitle('Análise da Variação da Tensão(RMS), Frequência, THD e Ruído', fontsize=14, fontweight='bold', color='#1976d2')
@@ -218,6 +240,9 @@ class SupervisorioPowerQuality:
                     {rows_html}
                 </tbody>
             </table>
+
+            <h3>Sistema Especialista: Sugestões de Intervenção</h3>
+            {bloco_sugestoes}
 
             <h3>Análise Gráfica</h3>
             <div class="chart-container">
