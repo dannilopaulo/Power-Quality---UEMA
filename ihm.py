@@ -1,3 +1,5 @@
+import base64
+from io import BytesIO
 from nicegui import ui
 import serial
 import serial.tools.list_ports
@@ -8,6 +10,9 @@ from datetime import datetime # Para timestamps precisos
 from collections import deque
 import pandas as pd
 from weasyprint import HTML
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 class SupervisorioPowerQuality:
     def __init__(self):
@@ -116,6 +121,55 @@ class SupervisorioPowerQuality:
             'total_falhas': df[df['Status'] != 'REDE NORMAL'].shape[0]
         }
 
+        # Gerar Gráficos com Subplots
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 12), sharex=True)
+        fig.suptitle('Análise da Variação da Tensão(RMS), Frequência, THD e Ruído', fontsize=14, fontweight='bold', color='#1976d2')
+
+        # Eixo X comum
+        eixo_x = range(len(df))
+
+        # --- Gráfico 1: Tensão RMS ---
+        ax1.plot(eixo_x, df['Vrms(V)'], color='#1976d2', linewidth=1.5, label='Vrms')
+        ax1.axhline(y=242, color='red', linestyle='--', alpha=0.6, label='Limite Swell (+10%)')
+        ax1.axhline(y=198, color='orange', linestyle='--', alpha=0.6, label='Limite Sag (-10%)')
+        ax1.set_ylabel('Tensão (V)')
+        ax1.legend(loc='upper right', fontsize=8)
+        ax1.grid(True, alpha=0.3)
+
+        # --- Gráfico 2: Frequência ---
+        ax2.plot(eixo_x, df['Freq(Hz)'], color='#8e44ad', linewidth=1.5)
+        ax2.axhline(y=60.5, color='red', linestyle='--', alpha=0.3)
+        ax2.axhline(y=59.5, color='red', linestyle='--', alpha=0.3)
+        ax2.set_ylabel('Frequência (Hz)')
+        ax2.grid(True, alpha=0.3)
+
+        # --- Gráfico 3: THD (Distorção) ---
+        ax3.plot(eixo_x, df['THD(%)'], color='#c0392b', linewidth=1.5, label='THD Total')
+        ax3.fill_between(eixo_x, df['THD(%)'], color='#c0392b', alpha=0.1) # Preenchimento suave embaixo da linha
+        ax3.axhline(y=5.0, color='red', linestyle='--', alpha=0.6, label='Limite (5%)')
+        ax3.set_ylabel('THD (%)')
+        ax3.grid(True, alpha=0.3)
+
+        # --- Grafico 4: Ruído ---
+        ax4.plot(eixo_x, df['Ruido(%)'], color='#d35400', linewidth=1.5, label='Ruído EMI')
+        ax4.fill_between(eixo_x, df['Ruido(%)'], color='#d35400', alpha=0.1) # Preenchimento suave embaixo da linha
+        ax4.axhline(y=0.03, color='red', linestyle='--', alpha=0.6, label='Limite (0.03%)')
+        ax4.set_ylabel('Ruído (%)')
+        ax4.set_xlabel('Amostras Registradas ao Longo do Tempo')
+        ax4.legend(loc='upper right', fontsize=8)
+
+        # Ajusta o espaçamento para não sobrepor os textos
+        plt.tight_layout()
+        fig.subplots_adjust(top=0.92) # Dá espaço para o título principal
+
+        # Salva na memória RAM
+        buf = BytesIO()
+        plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
+        graph_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        
+        # Fechar a figura para liberar a memória RAM
+        plt.close(fig)
+
         # Criar o HTML do Relatório
         html_content = f"""
         <html>
@@ -136,7 +190,8 @@ class SupervisorioPowerQuality:
         <body>
             <div class="header">
                 <h1>Relatório de Qualidade de Energia</h1>
-                <p>UEMA - Engenharia de Computação | Sistema Supervisório</p>
+                <p>Universidade Estadual do Maranhão</p>
+                <p>Engenharia de Computação</p>
             </div>
             
             <h3>Resumo do Período</h3>
@@ -151,10 +206,6 @@ class SupervisorioPowerQuality:
                 <div class="stat-box">Ruído Máximo<br><span class="stat-val">{resumo['ruido_max']:.2f} %</span></div>
                 <div class="stat-box">Total de Anomalias<br><span class="stat-val">{resumo['total_falhas']}</span></div>
             </div>
-            
-            <h3>Sugestões de Intervenção Técnicas</h3>
-            <p>Com base na análise dos dados coletados, foram identificados os seguintes pontos críticos e sugestões de intervenção técnica:</p>
-            
 
             <h3>Log de Eventos e Anomalias</h3>
             <table>
@@ -167,6 +218,12 @@ class SupervisorioPowerQuality:
                     {rows_html}
                 </tbody>
             </table>
+
+            <h3>Análise Gráfica</h3>
+            <div class="chart-container">
+                <img src="data:image/png;base64,{graph_base64}" style="width: 100%;">
+            </div>
+
         </body>
         </html>
         """
@@ -250,46 +307,45 @@ class SupervisorioPowerQuality:
                         
                       # Mapeamento Booleano para a Árvore de Decisão
                     if "SWELL DETECTADO" in msg:
-                        self.status_msg = 'Swell (sobretensão).'
+                        self.status_msg = 'Rede com Anomalia.'
                         self.status_color = 'text-red-600'
                         self.flag_swell = True
                         self.flag_sag = False
                         self.flag_spike = False
                     elif "SAG DETECTADO" in msg:
-                        self.status_msg = 'Sag (queda de tensão.'
+                        self.status_msg = 'Rede com Anomalia.'
                         self.status_color = 'text-orange-600'
                         self.flag_sag = True
                         self.flag_swell = False
                         self.flag_spike = False
                     elif "SPIKE DETECTADO" in msg:
-                        self.status_msg = 'Spike (pico de tensão).'
+                        self.status_msg = 'Rede com Anomalia.'
                         self.status_color = 'text-pink-600'
                         self.flag_spike = True
                         self.flag_swell = False
                         self.flag_sag = False
                         self.flag_ruido = False
                     elif "DESVIO DE FREQUENCIA" in msg:
-                        self.status_msg = 'Desvio de frequência.'
+                        self.status_msg = 'Rede com Anomalia.'
                         self.status_color = 'text-indigo-600'
                         self.flag_freq = True
                     elif "SALTO DE FASE" in msg:
-                        self.status_msg = 'Salto de fase.'
-                        self.status_color = 'text-purple-600'
                         self.flag_fase = True
                     elif "DISTORCAO HARMONICA ELEVADA" in msg:
-                        self.status_msg = 'THD (Distorção Harmônica).'
+                        self.status_msg = 'Rede com Anomalia.'
                         self.status_color = 'text-red-600'
                         self.flag_thd = True
-                    elif "RUIDO DE ALTA FREQUENCIA" in msg:
-                        self.status_msg = 'Ruído de alta frequência.'
+                    elif "RUIDO DE ALTA FREQUENCIA" in msg and self.flag_spike == False:
+                        self.status_msg = 'Rede com Anomalia.'
                         self.status_color = 'text-orange-600'
                         self.flag_ruido = True
-                    elif "REDE NORMAL" in msg and self.flag_freq == False and self.flag_fase == False and self.flag_thd == False and self.flag_ruido == False and self.flag_swell == False:
+                    elif "REDE NORMAL" in msg and self.flag_freq == False and self.flag_fase == False and self.flag_thd == False and self.flag_ruido == False and self.flag_swell == False and self.flag_sag == False and self.flag_spike == False:
                         self.status_msg = "REDE NORMAL"
                         self.status_color = "text-green-600"
                         # Limpa as flags se a rede normalizou
                         self.flag_swell = False
                         self.flag_sag = False
+                        self.flag_spike = False
                         self.flag_freq = False
                         self.flag_fase = False
                         self.flag_thd = False
@@ -418,6 +474,7 @@ with ui.column().classes('bg-zinc-800 w-full max-w-7xl mx-auto p-4 gap-6'):
                         sup.enviar('D', 27, 1)
                         sup.flag_swell = False
                         sup.flag_sag = False
+                        sup.flag_spike = False
                         sup.flag_freq = False
                         sup.flag_fase = False
                         sup.flag_thd = False
