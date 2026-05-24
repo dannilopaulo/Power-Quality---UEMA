@@ -9,7 +9,7 @@ from collections import deque
 import pandas as pd
 from weasyprint import HTML
 
-class SupervisorioEduardo:
+class SupervisorioPowerQuality:
     def __init__(self):
         self.ser = None
         self.conectado = False
@@ -85,13 +85,34 @@ class SupervisorioEduardo:
     def gerar_relatorio_pdf(self, caminho_csv):
         # Carregar dados
         df = pd.read_csv(caminho_csv, encoding='utf-8-sig')
-        
+
+        status_repetido = ""
+        linhas_tabela = []
+        for _, r in df.iterrows():
+            status = r['Status']
+            if status != status_repetido:
+                status_repetido = status
+                row_class = 'red' if status != 'REDE NORMAL' else ''
+                linhas_tabela.append(
+                    f"<tr>"
+                    f"<td>{r['Timestamp']}</td>"
+                    f"<td>{r['Vrms(V)']}</td>"
+                    f"<td>{r['Freq(Hz)']}</td>"
+                    f"<td>{r['THD(%)']}</td>"
+                    f"<td>{r['Ruido(%)']}</td>"
+                    f"<td class='{row_class}'>{status}</td>"
+                    f"</tr>"
+                )
+        rows_html = "".join(linhas_tabela)
+
         # Cálculos consolidados
         resumo = {
             'inicio': df['Timestamp'].iloc[0],
             'fim': df['Timestamp'].iloc[-1],
             'vrms_media': df['Vrms(V)'].mean(),
+            'freq_media': df['Freq(Hz)'].mean(),
             'thd_max': df['THD(%)'].max(),
+            'ruido_max': df['Ruido(%)'].max(),
             'total_falhas': df[df['Status'] != 'REDE NORMAL'].shape[0]
         }
 
@@ -121,25 +142,35 @@ class SupervisorioEduardo:
             <h3>Resumo do Período</h3>
             <div class="stats-grid">
                 <div class="stat-box">Início<br><span class="stat-val">{resumo['inicio']}</span></div>
+                <div class="stat-box">Fim<br><span class="stat-val">{resumo['fim']}</span></div>
+            </div>  
+            <div class="stats-grid">
                 <div class="stat-box">Vrms Médio<br><span class="stat-val">{resumo['vrms_media']:.2f} V</span></div>
+                <div class="stat-box">Frequência<br><span class="stat-val">{resumo['freq_media']:.2f} Hz</span></div>
                 <div class="stat-box">THD Máximo<br><span class="stat-val">{resumo['thd_max']:.2f} %</span></div>
+                <div class="stat-box">Ruído Máximo<br><span class="stat-val">{resumo['ruido_max']:.2f} %</span></div>
+                <div class="stat-box">Total de Anomalias<br><span class="stat-val">{resumo['total_falhas']}</span></div>
             </div>
+            
+            <h3>Sugestões de Intervenção Técnicas</h3>
+            <p>Com base na análise dos dados coletados, foram identificados os seguintes pontos críticos e sugestões de intervenção técnica:</p>
+            
 
             <h3>Log de Eventos e Anomalias</h3>
             <table>
                 <thead>
                     <tr>
-                        <th>Timestamp</th><th>Vrms</th><th>THD</th><th>Status</th>
+                        <th>Timestamp</th><th>Vrms</th><th>Frequência</th><th>THD</th><th>Ruído</th><th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {"".join([f"<tr><td>{r['Timestamp']}</td><td>{r['Vrms(V)']}</td><td>{r['THD(%)']}</td><td class='{'red' if r['Status'] != 'REDE NORMAL' else ''}'>{r['Status']}</td></tr>" for _, r in df.tail(20).iterrows()])}
+                    {rows_html}
                 </tbody>
             </table>
         </body>
         </html>
         """
-        
+
         # Converter para PDF
         output_pdf = caminho_csv.replace('.csv', '.pdf')
         HTML(string=html_content).write_pdf(output_pdf)
@@ -219,37 +250,38 @@ class SupervisorioEduardo:
                         
                       # Mapeamento Booleano para a Árvore de Decisão
                     if "SWELL DETECTADO" in msg:
-                        self.status_msg = 'Swell (sobretensão) detectado. Verifique os reguladores de tensão. Sugestão: usar um estabilizador ou filtro de linha para proteger os equipamentos conectados.'
+                        self.status_msg = 'Swell (sobretensão).'
                         self.status_color = 'text-red-600'
                         self.flag_swell = True
                         self.flag_sag = False
                         self.flag_spike = False
                     elif "SAG DETECTADO" in msg:
-                        self.status_msg = 'Sag (queda de tensão) detectado. Verifique sobrecarga na instalação elétrica. Sugestão: utilizar um no-break para garantir estabilidade.'
+                        self.status_msg = 'Sag (queda de tensão.'
                         self.status_color = 'text-orange-600'
                         self.flag_sag = True
                         self.flag_swell = False
                         self.flag_spike = False
                     elif "SPIKE DETECTADO" in msg:
-                        self.status_msg = 'Spike (pico de tensão) detectado. Risco de dabi a equipamentos sensíveis. Sugestão: Instalar DPS (Dispositivo de Proteção contra Surtos) para desviar picos e aterramento adequado.'
+                        self.status_msg = 'Spike (pico de tensão).'
                         self.status_color = 'text-pink-600'
                         self.flag_spike = True
                         self.flag_swell = False
                         self.flag_sag = False
+                        self.flag_ruido = False
                     elif "DESVIO DE FREQUENCIA" in msg:
-                        self.status_msg = 'Desvio de frequência detectado. Verifique a estabilidade do sistema elétrico. Sugestão: Monitorar a estabilidade da rede e considerar o uso de no-break para cargas críticas.'
+                        self.status_msg = 'Desvio de frequência.'
                         self.status_color = 'text-indigo-600'
                         self.flag_freq = True
                     elif "SALTO DE FASE" in msg:
-                        self.status_msg = 'Salto de fase detectado. Possível falha de sincronismo elétrico. Sugestão: Verificar balanceamento das fases.'
+                        self.status_msg = 'Salto de fase.'
                         self.status_color = 'text-purple-600'
                         self.flag_fase = True
                     elif "DISTORCAO HARMONICA ELEVADA" in msg:
-                        self.status_msg = 'THD (Distorção Harmônica) elevado. Presença excessiva de harmônicas ímpares. Sugestão: Utilizar filtros harmônicos.'
+                        self.status_msg = 'THD (Distorção Harmônica).'
                         self.status_color = 'text-red-600'
                         self.flag_thd = True
                     elif "RUIDO DE ALTA FREQUENCIA" in msg:
-                        self.status_msg = 'Ruído de alta frequência detectado. Possível interferência eletromagnética. Sugestão: Utilizar filtros EMI/RFI (Interferência Eletromagnética/Interferência de Radiofrequência).'
+                        self.status_msg = 'Ruído de alta frequência.'
                         self.status_color = 'text-orange-600'
                         self.flag_ruido = True
                     elif "REDE NORMAL" in msg and self.flag_freq == False and self.flag_fase == False and self.flag_thd == False and self.flag_ruido == False and self.flag_swell == False:
@@ -266,10 +298,10 @@ class SupervisorioEduardo:
             except Exception:
                 pass
 
-sup = SupervisorioEduardo()
+sup = SupervisorioPowerQuality()
 
 # --- INTERFACE DE USUÁRIO (UI) ---
-ui.query('.q-page').classes('bg-slate-200')
+ui.query('.q-page').classes('bg-zinc-800')
 
 # 1. CABEÇALHO
 with ui.header().classes('bg-zinc-900 items-center justify-between shadow-md'):
@@ -277,8 +309,8 @@ with ui.header().classes('bg-zinc-900 items-center justify-between shadow-md'):
     
     with ui.row().classes('items-center bg-white/10 p-2 rounded-lg gap-4'):
         sel_baud = ui.select(options=[9600, 115200], value=115200, label='Velocidade').props('dark dense standout')
-        opcoes_porta = sup.listar_portas() + ['socket://127.0.0.1:31415']
-        sel_porta = ui.select(options=opcoes_porta, value='socket://127.0.0.1:31415', label='Porta').props('dark dense standout')
+        opcoes_porta = sup.listar_portas() + ['- - - - -']
+        sel_porta = ui.select(options=opcoes_porta, value='- - - - -', label='Porta').props('dark dense standout')
         
         ui.button('CONECTAR', on_click=lambda: sup.conectar(sel_porta.value, sel_baud.value))\
             .bind_visibility_from(sup, 'conectado', backward=lambda x: not x).props('color=green-7')
@@ -292,28 +324,29 @@ with ui.header().classes('bg-zinc-900 items-center justify-between shadow-md'):
             .props('color=grey-9 icon=picture_as_pdf')
 
 # Container Principal
-with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
+with ui.column().classes('bg-zinc-800 w-full max-w-7xl mx-auto p-4 gap-6'):
     
     # 1. PAINEL DE DIAGNÓSTICO E HARMÔNICAS
     with ui.row().classes('w-full gap-4'):
         # Status Geral
-        with ui.card().classes('flex-grow p-4 shadow-sm border-l-4 border-blue-600 items-center justify-center'):
-            ui.label('DIAGNÓSTICO GERAL DA REDE').classes('text-xs font-bold text-gray-500 uppercase')
-            lbl_status = ui.label('AGUARDANDO').classes('text-2xl font-bold mt-2 text-center')
+        with ui.card().classes('bg-zinc-900 flex-grow p-4 shadow-sm border-l-4 border-blue-600 items-center justify-center'):
+            ui.label('DIAGNÓSTICO GERAL DA REDE').classes('text-xs font-bold text-gray-400 uppercase')
+            lbl_status = ui.label('AGUARDANDO').classes('text-white text-2xl font-bold mt-2 text-center')
 
+    with ui.row().classes('w-full gap-4'):
         # Monitoramento das Harmônicas Específicas do Professor
-        with ui.card().classes('w-1/2 p-4 shadow-sm'):
-            ui.label('MONITORAMENTO DE HARMÔNICAS CRÍTICAS').classes('text-xs font-bold text-gray-500 uppercase mb-2')
+        with ui.card().classes('bg-zinc-900 flex-grow p-4 shadow-sm items-center justify-center border-l-4 border-purple-600'):
+            ui.label('MONITORAMENTO DE HARMÔNICAS CRÍTICAS').classes('text-xs font-bold text-gray-400 uppercase mb-2')
             with ui.row().classes('w-full justify-around'):
                 with ui.column().classes('items-center'):
                     ui.label('3ª (180Hz)').classes('text-sm font-bold text-purple-700')
-                    lbl_h3 = ui.label('0.0').classes('text-xl font-mono')
+                    lbl_h3 = ui.label('0.0').classes('text-xl font-mono text-white')
                 with ui.column().classes('items-center'):
                     ui.label('5ª (300Hz)').classes('text-sm font-bold text-purple-700')
-                    lbl_h5 = ui.label('0.0').classes('text-xl font-mono')
+                    lbl_h5 = ui.label('0.0').classes('text-xl font-mono text-white')
                 with ui.column().classes('items-center'):
                     ui.label('7ª (420Hz)').classes('text-sm font-bold text-purple-700')
-                    lbl_h7 = ui.label('0.0').classes('text-xl font-mono')
+                    lbl_h7 = ui.label('0.0').classes('text-xl font-mono text-white')
 
     # 2. SISTEMA ESPECIALISTA (ÁRVORE DE DECISÃO) - NOVO RECURSO EXIGIDO
     with ui.card().classes('w-full p-4 shadow-sm border-l-4 border-yellow-500 bg-yellow-50'):
@@ -323,8 +356,8 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
     # 3. MÉTRICAS PRINCIPAIS
     with ui.row().classes('w-full grid grid-cols-5 gap-4'):
         def criar_card_metrica(titulo, cor_texto):
-            with ui.card().classes('items-center p-4 shadow-sm'):
-                ui.label(titulo).classes('text-xs font-bold text-gray-500 uppercase tracking-wider text-center')
+            with ui.card().classes('bg-zinc-900 items-center p-4 shadow-sm'):
+                ui.label(titulo).classes('text-xs font-bold text-gray-400 uppercase tracking-wider text-center')
                 lbl_valor = ui.label('--').classes(f'text-3xl font-mono {cor_texto} mt-2')
             return lbl_valor
 
@@ -339,7 +372,7 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
         with ui.column().classes('flex-grow w-2/3 gap-4'):
             
             # Osciloscópio
-            with ui.card().classes('w-full p-4 shadow-sm'):
+            with ui.card().classes('bg-zinc-900 w-full p-4 shadow-sm'):
                 ui.label('DOMÍNIO DO TEMPO (Osciloscópio)').classes('text-bold text-blue-9 text-caption')
                 grafico_onda = ui.echart({
                     'animation': False,
@@ -350,7 +383,7 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
                 }).classes('h-40 w-full')
 
             # Espectro FFT
-            with ui.card().classes('w-full p-4 shadow-sm'):
+            with ui.card().classes('bg-zinc-900 w-full p-4 shadow-sm'):
                 ui.label('ESPECTRO DE FREQUÊNCIAS (Transformada Rápida de Fourier)').classes('text-bold text-purple-9 text-caption')
                 grafico_fft = ui.echart({
                     'animation': False, 
@@ -362,8 +395,8 @@ with ui.column().classes('w-full max-w-7xl mx-auto p-4 gap-6'):
 
         # Coluna do Simulador de Anomalias (Simulação de Formas de Onda e Injeção de Distúrbios)
         with ui.column().classes('w-1/4 min-w-[250px] gap-4'):
-            with ui.card().classes('w-full p-4 shadow-sm bg-slate-50'):
-                ui.label('PAINEL DE SIMULAÇÃO').classes('text-bold text-slate-800 text-subtitle2 mb-4 text-center')
+            with ui.card().classes('bg-zinc-900 w-full p-4 shadow-sm'):
+                ui.label('PAINEL DE SIMULAÇÃO').classes('text-bold text-gray-400 text-subtitle2 mb-4 text-center')
                 
                 with ui.column().classes('w-full gap-3'):
                     ui.label('Formas de Onda (Base):').classes('text-xs text-gray-500 font-bold')
@@ -399,23 +432,23 @@ def motor_de_inferencia():
     
     # 1. Análise de Amplitude
     if sup.flag_swell:
-        sugestoes.append("⚠️ <b>TENSÃO (SWELL):</b> Sobretensão detectada. Sugestão de Intervenção Tecnica")
+        sugestoes.append("⚠️ <b>TENSÃO (SWELL):</b> Sobretensão detectada. Verifique os reguladores de tensão. Sugestão: usar um estabilizador ou filtro de linha para proteger os equipamentos conectados.")
     if sup.flag_sag:
-        sugestoes.append("⚠️ <b>TENSÃO (SAG):</b> Queda de tensão. Sugestão de Intervenção Tecnica")
+        sugestoes.append("⚠️ <b>TENSÃO (SAG):</b> Queda de tensão. Verifique sobrecarga na instalação elétrica. Sugestão: utilizar um no-break para garantir estabilidade.")
     if sup.flag_spike:
-        sugestoes.append("⚠️ <b>TRANSIENTE (SPIKE):</b> Pico de tensão detectado. Sugestão de Intervenção Tecnica")
+        sugestoes.append("⚠️ <b>TRANSIENTE (SPIKE):</b> Pico de tensão detectado. Risco de dano a equipamentos sensíveis. Sugestão: Instalar DPS (Dispositivo de Proteção contra Surtos) para desviar picos e aterramento adequado.")
         
     # 2. Análise de Sincronismo
     if sup.flag_freq:
-        sugestoes.append("⚠️ <b>FREQUÊNCIA:</b> Instabilidade detectada (Desvio de 60Hz). Sugestão de Intervenção Tecnica")
+        sugestoes.append("⚠️ <b>FREQUÊNCIA:</b> Instabilidade detectada (Desvio de 60Hz). Verifique a estabilidade do sistema elétrico. Sugestão: Monitorar a estabilidade da rede e considerar o uso de no-break para cargas críticas.")
     if sup.flag_fase:
-        sugestoes.append("❌ <b>CRÍTICO (FASE):</b> Salto de fase ou centelhamento detectado. Sugestão de Intervenção Tecnica")
+        sugestoes.append("❌ <b>CRÍTICO (FASE):</b> Salto de fase ou centelhamento detectado. Possível falha de sincronismo elétrico. Sugestão: Verificar balanceamento das fases.")
         
     # 3. Análise de DSP (Harmônicas e Ruído)
     if sup.flag_thd:
-        sugestoes.append(f"⚠️ <b>HARMÔNICAS:</b> Elevado ruído harmônico (THD = {sup.thd_val}%). Sugestão de Intervenção Tecnica")
+        sugestoes.append(f"⚠️ <b>HARMÔNICAS:</b> Elevado ruído harmônico (THD = {sup.thd_val}%). Presença excessiva de harmônicas ímpares. Sugestão: Utilizar filtros harmônicos.")
     if sup.flag_ruido:
-        sugestoes.append("⚠️ <b>INTERFERÊNCIA EMI/RFI:</b> Ruído de alta frequência acoplado. Sugestão de Intervenção Tecnica")
+        sugestoes.append("⚠️ <b>INTERFERÊNCIA EMI/RFI:</b> Ruído de alta frequência acoplado. Possível interferência eletromagnética. Sugestão: Utilizar filtros EMI/RFI (Interferência Eletromagnética/Interferência de Radiofrequência).")
 
     # Conclusão
     if len(sugestoes) == 0:
