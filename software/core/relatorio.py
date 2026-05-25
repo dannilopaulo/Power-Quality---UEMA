@@ -12,23 +12,20 @@ def gerar_relatorio_pdf(caminho_csv):
         # Carregar dados
         df = pd.read_csv(caminho_csv, encoding='utf-8-sig')
 
-        status_repetido = ""
         linhas_tabela = []
-        for _, r in df.iterrows():
+        for _, r in df.tail(10).iterrows():
             status = r['Status']
-            if status != status_repetido:
-                status_repetido = status
-                row_class = 'red' if status != 'REDE NORMAL' else ''
-                linhas_tabela.append(
-                    f"<tr>"
-                    f"<td>{r['Timestamp']}</td>"
-                    f"<td>{r['Vrms(V)']}</td>"
-                    f"<td>{r['Freq(Hz)']}</td>"
-                    f"<td>{r['THD(%)']}</td>"
-                    f"<td>{r['Ruido(%)']}</td>"
-                    f"<td class='{row_class}'>{status}</td>"
-                    f"</tr>"
-                )
+            row_class = 'red' if status != 'REDE NORMAL' else ''
+            linhas_tabela.append(
+                f"<tr>"
+                f"<td>{r['Timestamp']}</td>"
+                f"<td>{r['Vrms(V)']}</td>"
+                f"<td>{r['Freq(Hz)']}</td>"
+                f"<td>{r['THD(%)']}</td>"
+                f"<td>{r['Ruido(%)']}</td>"
+                f"<td class='{row_class}'>{status}</td>"
+                f"</tr>"
+            )
         rows_html = "".join(linhas_tabela)
 
         # Cálculos consolidados
