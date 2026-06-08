@@ -1,0 +1,5 @@
+Link do Repositório no Github com todos os arquivos da Simulação:
+https://github.com/dannilopaulo/Power-Quality---UEMA
+
+Link do Projeto no Wokwi para simulação do ESP32:
+https://wokwi.com/projects/463681652899879937
